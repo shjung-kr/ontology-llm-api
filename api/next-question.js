@@ -1,4 +1,14 @@
 export default async function handler(req, res) {
+  // ✅ CORS 헤더 (필요하면 "*" 대신 너 도메인으로 제한 가능)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // ✅ 프리플라이트 요청 처리
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   // POST만 허용
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -12,28 +22,23 @@ export default async function handler(req, res) {
       language = "ko"
     } = req.body || {};
 
-    // 안전장치
     if (!Array.isArray(allowedFeatures) || allowedFeatures.length === 0) {
       return res.status(400).json({ error: "allowedFeatures required" });
     }
 
-    // 프롬프트 (JSON 강제)
     const prompt = `
-You are generating the NEXT best yes/no question for a 20-questions game.
+Return ONLY a valid JSON object. Do not include any extra text.
 
-STRICT RULES:
-- Output ONLY a valid JSON object
-- Do NOT add any explanation or text
-- JSON format EXACTLY:
+JSON format:
 {
   "questionText": string,
   "feature": string
 }
 
-Constraints so far:
+Constraints:
 ${JSON.stringify(constraints, null, 2)}
 
-Already asked features:
+Already asked:
 ${askedFeatures.join(", ")}
 
 Allowed feature list:
@@ -42,11 +47,10 @@ ${allowedFeatures.map(f => `- ${f}`).join("\n")}
 Language: ${language}
 `;
 
-    // OpenAI 호출
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -62,7 +66,6 @@ Language: ${language}
       return res.status(500).send(`OpenAI error: ${rawText}`);
     }
 
-    // JSON 추출기 (모델이 말 섞어도 대비)
     const parsedOuter = JSON.parse(rawText);
     const content = parsedOuter?.choices?.[0]?.message?.content ?? "";
 
@@ -73,20 +76,13 @@ Language: ${language}
     }
 
     const jsonOnly = content.slice(start, end + 1);
-
-    let result;
-    try {
-      result = JSON.parse(jsonOnly);
-    } catch {
-      return res.status(500).send(`Invalid JSON from model: ${jsonOnly}`);
-    }
+    const result = JSON.parse(jsonOnly);
 
     if (!result.questionText || !result.feature) {
       return res.status(500).send(`Incomplete JSON: ${jsonOnly}`);
     }
 
     return res.status(200).json(result);
-
   } catch (e) {
     return res.status(500).send(`Server error: ${e.message}`);
   }
