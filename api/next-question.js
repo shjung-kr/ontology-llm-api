@@ -1,4 +1,15 @@
 export default async function handler(req, res) {
+
+  // ✅ CORS 헤더 (가장 중요)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // ✅ Preflight 요청 처리
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -13,17 +24,11 @@ export default async function handler(req, res) {
     let instruction = "";
 
     if (intent.type === "FEATURE") {
-      instruction = `
-Generate a yes/no question to determine whether the target has this feature:
-"${intent.feature}"
-`;
+      instruction = `Determine whether the target has the feature "${intent.feature}".`;
     }
 
     if (intent.type === "LITERAL") {
-      instruction = `
-Generate a yes/no question to determine whether the target has this property:
-"${intent.property}" equals "${intent.value}"
-`;
+      instruction = `Determine whether the target's "${intent.property}" equals "${intent.value}".`;
     }
 
     if (!instruction) {
@@ -31,7 +36,7 @@ Generate a yes/no question to determine whether the target has this property:
     }
 
     const prompt = `
-You are generating a single yes/no question for a 20-questions style ontology reasoner (POR).
+You generate a single yes/no question for a POR ontology engine.
 
 Rules:
 - Output ONLY valid JSON
@@ -39,7 +44,7 @@ Rules:
 {
   "questionText": string
 }
-- Do NOT include explanations
+- No explanations
 - Language: ${language}
 
 ${instruction}
