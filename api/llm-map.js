@@ -5,14 +5,22 @@ export default async function handler(req, res) {
 
   try {
     const { text } = req.body || {};
-    if (!text) {
-      return res.status(400).json({ error: "Missing text" });
+
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing or invalid text" });
     }
 
     const prompt = `
 You are an ontology-mapping assistant for POR (Proofence Ontology Reasoner).
 
-Return ONLY valid JSON in this schema:
+Your task:
+- Extract ontology-relevant information from user input
+- DO NOT reason or infer beyond the text
+- DO NOT guess missing information
+- ONLY map what is clearly implied
+
+Return ONLY valid JSON in the following schema:
+
 {
   "features": string[],
   "literals": {
@@ -22,6 +30,14 @@ Return ONLY valid JSON in this schema:
   "classes": string[],
   "confidence": number
 }
+
+Rules:
+- features: boolean-like properties (e.g. "isLiving", "isAnimal", "canBePet")
+- literals: concrete values (sound, color, size, material, etc.)
+- classes: conceptual categories if explicitly implied
+- confidence: 0.0 ~ 1.0 (how confident you are in the mapping)
+- If nothing is found, return empty arrays with low confidence
+- NO extra text, NO markdown, JSON ONLY
 
 User input:
 """
@@ -37,12 +53,23 @@ ${text}
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a strict JSON generator. Never include explanations or formatting."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
         temperature: 0.2
       })
     });
 
     const raw = await r.text();
+
     if (!r.ok) {
       return res.status(500).send(raw);
     }
@@ -50,15 +77,17 @@ ${text}
     let parsed;
     try {
       parsed = JSON.parse(JSON.parse(raw).choices[0].message.content);
-    } catch {
+    } catch (e) {
       return res.status(500).send("Model returned non-JSON");
     }
 
     // 최소 스키마 검증
     if (
+      !parsed ||
       !Array.isArray(parsed.features) ||
       !Array.isArray(parsed.literals) ||
-      !Array.isArray(parsed.classes)
+      !Array.isArray(parsed.classes) ||
+      typeof parsed.confidence !== "number"
     ) {
       return res.status(500).send("Invalid mapping schema");
     }
